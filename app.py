@@ -1,53 +1,130 @@
+import os
+import joblib
 import streamlit as st
 import pandas as pd
-import numpy as np
-import joblib
 import matplotlib.pyplot as plt
+import numpy as np
 
 st.set_page_config(page_title="Wine Quality Dashboard", layout="wide")
 
-model = joblib.load("best_wine_model.pkl")
-scaler = joblib.load("wine_scaler.pkl")
-feature_names = joblib.load("wine_feature_names.pkl")
-results_df = pd.read_csv("model_results.csv")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-red = pd.read_csv("winequality-red.csv", sep=";")
-white = pd.read_csv("winequality-white.csv", sep=";")   
+# Load saved files
+model = joblib.load(os.path.join(BASE_DIR, "best_wine_model.pkl"))
+scaler = joblib.load(os.path.join(BASE_DIR, "wine_scaler.pkl"))
+feature_names = joblib.load(os.path.join(BASE_DIR, "wine_feature_names.pkl"))
+
+# Load model results
+results_path = os.path.join(BASE_DIR, "model_results.csv")
+if os.path.exists(results_path):
+    results_df = pd.read_csv(results_path)
+else:
+    results_df = pd.DataFrame()
+
+# Load dataset
+red = pd.read_csv(os.path.join(BASE_DIR, "winequality-red.csv"), sep=";")
+white = pd.read_csv(os.path.join(BASE_DIR, "winequality-white.csv"), sep=";")
+
 red["wine_type"] = "red"
 white["wine_type"] = "white"
 df = pd.concat([red, white], ignore_index=True)
 
-st.title("Wine Quality Prediction Dashboard")
-
 menu = st.sidebar.selectbox(
     "Select Page",
-    ["Dataset Overview", "Model Results", "Prediction"]
+    [
+        "Dataset Overview",
+        "Quality Distribution",
+        "Feature Importance",
+        "Correlation Matrix",
+        "Model Results",
+        "Prediction"
+    ]
 )
+
+st.title("Wine Quality Prediction Dashboard")
 
 if menu == "Dataset Overview":
     st.subheader("Dataset Overview")
     st.write("Shape of dataset:", df.shape)
     st.dataframe(df.head())
+    st.dataframe(df.describe())
 
-    st.subheader("Quality Distribution")
-    fig, ax = plt.subplots()
+elif menu == "Quality Distribution":
+    st.subheader("Wine Quality Distribution")
     counts = df["quality"].value_counts().sort_index()
+
+    fig, ax = plt.subplots(figsize=(8, 5))
     ax.bar(counts.index.astype(str), counts.values)
+    ax.set_title("Wine Quality Distribution")
     ax.set_xlabel("Quality")
     ax.set_ylabel("Count")
-    ax.set_title("Wine Quality Distribution")
+    st.pyplot(fig)
+
+elif menu == "Feature Importance":
+    st.subheader("Feature Importance - Random Forest")
+
+    importances = model.feature_importances_
+    importance_df = pd.DataFrame({
+        "Feature": feature_names,
+        "Importance": importances
+    }).sort_values(by="Importance", ascending=False)
+
+    st.dataframe(importance_df)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.barh(importance_df["Feature"], importance_df["Importance"])
+    ax.invert_yaxis()
+    ax.set_title("Feature Importance")
+    ax.set_xlabel("Importance")
+    ax.set_ylabel("Feature")
+    st.pyplot(fig)
+
+elif menu == "Correlation Matrix":
+    st.subheader("Correlation Matrix")
+
+    numeric_df = df.select_dtypes(include=[np.number])
+    corr = numeric_df.corr()
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    cax = ax.imshow(corr, interpolation="nearest")
+    fig.colorbar(cax)
+
+    ax.set_xticks(range(len(corr.columns)))
+    ax.set_yticks(range(len(corr.columns)))
+    ax.set_xticklabels(corr.columns, rotation=45, ha="right")
+    ax.set_yticklabels(corr.columns)
+    ax.set_title("Correlation Matrix")
+
+    for i in range(len(corr.columns)):
+        for j in range(len(corr.columns)):
+            ax.text(j, i, f"{corr.iloc[i, j]:.2f}", ha="center", va="center", fontsize=7)
+
+    plt.tight_layout()
     st.pyplot(fig)
 
 elif menu == "Model Results":
-    st.subheader("Model Comparison")
-    st.dataframe(results_df)
+    st.subheader("Model Performance Comparison")
 
-    fig, ax = plt.subplots()
-    ax.bar(results_df["Model"], results_df["Weighted_F1"])
-    ax.set_title("Weighted F1 Score by Model")
-    ax.set_ylabel("Weighted F1")
-    plt.xticks(rotation=45)
-    st.pyplot(fig)
+    if results_df.empty:
+        st.warning("model_results.csv not found. Please save your model comparison results first.")
+    else:
+        st.dataframe(results_df)
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.bar(results_df["Model"], results_df["Accuracy"])
+        ax.set_title("Accuracy by Model")
+        ax.set_xlabel("Model")
+        ax.set_ylabel("Accuracy")
+        plt.xticks(rotation=45)
+        st.pyplot(fig)
+
+        fig2, ax2 = plt.subplots(figsize=(8, 5))
+        ax2.bar(results_df["Model"], results_df["Weighted_F1"])
+        ax2.set_title("Weighted F1 Score by Model")
+        ax2.set_xlabel("Model")
+        ax2.set_ylabel("Weighted F1")
+        plt.xticks(rotation=45)
+        st.pyplot(fig2)
 
 elif menu == "Prediction":
     st.subheader("Predict Wine Quality")
